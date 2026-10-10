@@ -1,0 +1,12 @@
+claims = ["claims.py"]
+distributions = ["numpy", "scipy", "pytest"]
+
+[[bind]]
+files = ["README.md"]
+pattern = '(\d[\d,]*) tests\b'
+claim = "test_count"
+
+[[bind]]
+files = ["README.md"]
+pattern = '(\d[\d,]*) pytest\b'
+claim = "test_count"
