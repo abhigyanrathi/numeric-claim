@@ -1,0 +1,16 @@
+claims = ["claims.py"]
+distributions = ["numpy", "scipy"]
+
+[[bind]]
+files = ["src/cosfin/replications.py"]
+pattern = 'reproduced here to <(\d+(?:\.\d+)?e-\d+)'
+claim = ["t67_y05", "t67_y15"]
+relation = "lt"
+quantity = "error"
+
+[[bind]]
+files = ["src/cosfin/replications.py"]
+pattern = 'reproduced to <(\d+(?:\.\d+)?e-\d+) at the book'
+claim = ["t68_t01", "t68_t1"]
+relation = "lt"
+quantity = "error"
