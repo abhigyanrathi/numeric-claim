@@ -109,3 +109,90 @@ by less than 1e-11 under the same probes, so they are method or reference
 error, not rounding. The Table 6.8 T=0.1 bound has only a 1.5e-9 margin, but
 its error is deterministic, so it must pass; a rule based on the margin alone
 would fail it.
+
+## 9. Error budgets
+
+A seeded claim can carry an error budget, which estimates the rounding noise
+in its value and shows how the value moves with its method settings. The
+claim function takes its inputs and settings as keyword-only parameters with
+numeric defaults, and the defaults give the claim's value. A claim may also
+name a reference, the value it reproduces: a printed number, whose last digit
+gives its precision, or a closed form evaluated with mpmath (50 significant
+digits by default) and treated as exact.
+
+Whenever numeric-claim computes a budgeted claim, it also calls it 32 times
+with every nonzero floating-point input moved by 1 to 8 units in the last
+place in a random direction (nudges), 32 times with each declared continuous
+setting scaled by 1 + a*u, for a declared relative amplitude a of at most
+1e-6 and u uniform on [-1, 1] (jitter), and once at each declared refinement
+of a setting (ladders). The noise sigma is the larger of the standard
+deviations over the nudged and the jittered calls. The draws come from a
+generator seeded with the claim's name, so the lock file stays byte-identical
+across runs; it stores the two standard deviations and the ladder values
+beside the value, and `check` reuses them while the fingerprint is unchanged.
+
+Every number tied to a budgeted claim gets a verdict. The number is compared
+with the claim's value or, when its binding asks for it, with the value's
+error against the reference. The margin is how far inside the relation the
+compared quantity lies: the bound minus the quantity for `lt` and `le`, the
+quantity minus the bound for `gt` and `ge`, and the allowed difference minus
+the actual one for `eq`. A failing relation is `violated`; one that holds
+with a margin of at most 3 sigma is `rounding-limited`, because rounding on
+another platform could move the quantity across the edge; any other is
+`supported`. An upper bound on the error that is no larger than the
+reference's half-unit is `unsupported`, because the reference cannot resolve
+it. Only `supported` passes. A margin alone cannot separate a fragile pass
+from a safe one; the measured noise can.
+
+When a budgeted claim has a reference, numeric-claim also names what
+dominates its error e, taking the first that applies: the setting whose
+ladder reduces e the most, if it reduces e by more than 3 sigma and by at
+least half of e; `rounding`, when 3 sigma is at least half of e;
+`reference`, when e is within the reference's half-unit; otherwise
+`unexplained`. The label never changes the exit status. Growth of the error
+with a setting is not read as rounding: at a fixed number of terms a wider
+truncation range also coarsens the discretization, so a deterministic error
+can grow with it too.
+
+## 10. Claim values may be numpy scalars
+
+A claim may return any integer or real number type, such as numpy's int64 or
+float32, not only Python's int and float. Integers are converted to int and
+other reals to float before they are checked and stored; booleans, numpy's
+included, are still rejected. Numerical code returns numpy scalars as a
+matter of course, and a cast in every claim would add clutter without making
+anything safer.
+
+## 11. Gate 2 in detail
+
+Gate 2's claims are four calls to cosfin's `cos_european_price`, one per
+case. Every model and contract parameter is an input, apart from the zero
+dividend yield. The number of terms N and the truncation width L are
+settings: L is jittered by a relative 1e-9, and the ladders are N in
+{1024, 2048} for Table 6.7 (base 512) or {8192, 16384} for Table 6.8 (base
+4096), and L in {11, 12} (base 10). The references are written as
+replications.py writes them, to nine decimals; docs/RESULTS.md shows the
+Table 6.7 ones to eight because its script prints them as floats, and
+neither reading changes a verdict or label below. Patterns tie each of the
+two bounds to the errors of its two cases.
+
+Beyond the verdicts of entry 8, the gate requires these labels: `l_trunc`
+for Y=0.5 (L=11 removes most of its 1.8e-9 error), `rounding` for Y=1.5, `n`
+for T=0.1 (N=8192 brings its 8.5e-9 error down to 1.7e-9) and `reference`
+for T=1 (its 2.0e-10 error is within the reference's half-unit of 5e-10).
+Y=1.5 counts as flagged when it is `rounding-limited` with its error below
+4e-8, or `violated` with its error at or above 4e-8.
+
+The constants of the rule (32 draws, 3 sigma, half of the error) were chosen
+after the exploratory probes of entry 8, so the gate is not a blind test of
+them. Re-measured on 11 October 2026 (Linux, CPython 3.12.3, numpy 2.5.4)
+with the draws this design specifies, Y=1.5 has a sigma of 3.4e-8 against a
+margin of 5.3e-9, and each of the other three margins exceeds 4,900 sigma:
+any multiple of sigma from 0.16 to 4,900 gives the same verdicts (0.25 to
+3,500 across 20 other seeds).
+
+Entry 8 says the Y=0.5 and Table 6.8 errors move by less than 1e-11 under
+the probes. That holds for the Table 6.8 errors, which move by about 1e-13,
+but not for Y=0.5: its standard deviation under the probes is up to about
+1e-11, and the spread of its draws up to about 5e-11. The conclusion stands:
+these errors are method or reference error, not rounding.
