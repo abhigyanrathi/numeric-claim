@@ -2,6 +2,7 @@
 
 import inspect
 import math
+import numbers
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -48,14 +49,15 @@ class OccurrenceResult:
 
 
 def _checked(spec: ClaimSpec, raw: object) -> Value:
-    if isinstance(raw, bool) or not isinstance(raw, int | float):
+    if isinstance(raw, bool) or not isinstance(raw, numbers.Real):
         raise ClaimError(f"claim returned {type(raw).__name__}, expected an int or a float")
-    if isinstance(raw, int) and spec.kind == "exact":
-        return int(raw)
+    value = int(raw) if isinstance(raw, numbers.Integral) else raw
+    if isinstance(value, int) and spec.kind == "exact":
+        return value
     try:
-        number = float(raw)
+        number = float(value)
     except OverflowError as exc:
-        raise ClaimError("claim returned an int too large for a float") from exc
+        raise ClaimError("claim returned a number too large for a float") from exc
     if not math.isfinite(number):
         raise ClaimError(f"claim returned a non-finite value: {number!r}")
     return number
