@@ -10,7 +10,8 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy", "numpy"]
+dev = ["pytest", "ruff", "mypy", "numpy", "mpmath"]
+mpmath = ["mpmath"]
 
 [project.scripts]
 numeric-claim = "numeric_claim.cli:main"
@@ -34,3 +35,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["mpmath", "mpmath.*"]
+ignore_missing_imports = true

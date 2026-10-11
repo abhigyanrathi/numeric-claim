@@ -1,14 +1,16 @@
 """How a computed value relates to the number a document prints."""
 
+from decimal import Decimal
 from fractions import Fraction
 
 from numeric_claim.claim import Value
 from numeric_claim.literals import Literal
 
 RELATIONS = ("eq", "lt", "le", "gt", "ge")
+QUANTITIES = ("value", "error")
 
 
-def holds(relation: str, value: Value, literal: Literal, tolerance: float) -> bool:
+def holds(relation: str, value: Value | Decimal, literal: Literal, tolerance: float) -> bool:
     """Whether ``value`` stands in ``relation`` to the printed number, compared exactly."""
     computed = Fraction(value)
     printed = Fraction(literal.value)

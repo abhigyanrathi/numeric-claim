@@ -28,6 +28,7 @@ class Occurrence:
     relation: str
     literal: str
     origin: str
+    quantity: str = "value"
 
 
 def _line(text: str, position: int) -> int:
@@ -61,7 +62,7 @@ def find_matches(file: str, text: str, binding: Binding) -> list[Occurrence]:
         line = _line(text, start if start >= 0 else match.start())
         literal = match.group(1) or ""
         found.extend(
-            Occurrence(file, line, name, binding.relation, literal, "pattern")
+            Occurrence(file, line, name, binding.relation, literal, "pattern", binding.quantity)
             for name in binding.claims
         )
     return found

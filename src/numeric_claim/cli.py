@@ -9,10 +9,10 @@ from typing import TextIO
 
 from numeric_claim import lockfile
 from numeric_claim.claim import ClaimContext
-from numeric_claim.config import load_config
+from numeric_claim.config import Config, load_config
 from numeric_claim.engine import check_claim, judge_all, lock_claim
 from numeric_claim.errors import ConfigError
-from numeric_claim.loader import load_claims
+from numeric_claim.loader import LoadedClaim, load_claims
 from numeric_claim.report import Report, check_report, list_report, lock_report
 from numeric_claim.scan import collect
 
@@ -66,11 +66,25 @@ def _write_json(path: Path, report: Report) -> None:
         raise ConfigError(f"cannot write {path}: {exc.strerror or exc}") from exc
 
 
+def _require_references(config: Config, claims: Sequence[LoadedClaim]) -> None:
+    unreferenced = {loaded.spec.name for loaded in claims if loaded.spec.reference is None}
+    for index, binding in enumerate(config.bindings, start=1):
+        if binding.quantity != "error":
+            continue
+        for name in binding.claims:
+            if name in unreferenced:
+                raise ConfigError(
+                    f"[[bind]] entry {index}: quantity 'error' needs a reference, "
+                    f"and claim {name!r} declares none"
+                )
+
+
 def _run(args: argparse.Namespace) -> Report:
     if args.recompute and args.command != "check":
         raise ConfigError("--recompute applies to the check command only")
     config = load_config(args.config, root=args.root, lock=args.lock)
     claims = load_claims(config.claims)
+    _require_references(config, claims)
     if args.command == "list":
         return list_report(claims, collect(config))
     context = ClaimContext(config.root, config.directory)
@@ -83,6 +97,7 @@ def _run(args: argparse.Namespace) -> Report:
         return lock_report(locked, config.lock, written=written)
     occurrences = collect(config)
     stored = lockfile.read(config.lock)
+    error_bound = {occurrence.claim for occurrence in occurrences if occurrence.quantity == "error"}
     outcomes = [
         check_claim(
             loaded,
@@ -90,6 +105,7 @@ def _run(args: argparse.Namespace) -> Report:
             config.distributions,
             stored.get(loaded.spec.name),
             recompute=args.recompute,
+            error_bound=loaded.spec.name in error_bound,
         )
         for loaded in claims
     ]

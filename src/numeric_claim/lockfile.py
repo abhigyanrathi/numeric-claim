@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from numeric_claim.budget import Budget, Rung
 from numeric_claim.claim import Value
 from numeric_claim.errors import ConfigError
 
@@ -23,6 +24,7 @@ class LockEntry:
     environment: dict[str, Any]
     rtol: float = 0.0
     atol: float = 0.0
+    budget: Budget | None = None
 
 
 def _encode_value(value: Value) -> int | dict[str, str]:
@@ -45,6 +47,48 @@ def _number(raw: Any) -> float:
     return float(raw)
 
 
+def _encode_deviation(deviation: float | None) -> int | dict[str, str] | None:
+    return None if deviation is None else _encode_value(deviation)
+
+
+def _decode_deviation(raw: Any) -> float | None:
+    return None if raw is None else float(_decode_value(raw))
+
+
+def _encode_budget(budget: Budget) -> dict[str, Any]:
+    return {
+        "jitter": _encode_deviation(budget.jitter),
+        "ladders": {
+            name: [{"setting": rung.setting, "value": _encode_value(rung.value)} for rung in rungs]
+            for name, rungs in budget.ladders.items()
+        },
+        "nudge": _encode_deviation(budget.nudge),
+    }
+
+
+def _decode_rung(raw: Any) -> Rung:
+    if not isinstance(raw, dict):
+        raise ValueError(f"unreadable ladder entry {raw!r}")
+    setting = raw.get("setting")
+    if isinstance(setting, bool) or not isinstance(setting, int | float):
+        raise ValueError(f"expected a number, got {setting!r}")
+    return Rung(setting, float(_decode_value(raw.get("value"))))
+
+
+def _decode_budget(raw: Any) -> Budget:
+    if not isinstance(raw, dict) or not isinstance(raw.get("ladders"), dict):
+        raise ValueError("budget is not an object with ladders")
+    nudge, jitter = _decode_deviation(raw.get("nudge")), _decode_deviation(raw.get("jitter"))
+    if nudge is None and jitter is None:
+        raise ValueError("budget has neither nudge nor jitter")
+    ladders: dict[str, tuple[Rung, ...]] = {}
+    for name, rungs in raw["ladders"].items():
+        if not isinstance(rungs, list):
+            raise ValueError(f"ladder {name!r} is not a list")
+        ladders[name] = tuple(_decode_rung(rung) for rung in rungs)
+    return Budget(nudge, jitter, ladders)
+
+
 def _encode_entry(entry: LockEntry) -> dict[str, Any]:
     encoded: dict[str, Any] = {
         "environment": entry.environment,
@@ -55,6 +99,8 @@ def _encode_entry(entry: LockEntry) -> dict[str, Any]:
     if entry.kind == "seeded":
         encoded["rtol"] = entry.rtol
         encoded["atol"] = entry.atol
+    if entry.budget is not None:
+        encoded["budget"] = _encode_budget(entry.budget)
     return encoded
 
 
@@ -67,7 +113,8 @@ def _decode_entry(raw: Any) -> LockEntry:
     value = _decode_value(raw.get("value"))
     if kind == "seeded":
         rtol, atol = _number(raw.get("rtol")), _number(raw.get("atol"))
-        return LockEntry(kind, value, fingerprint, environment, rtol, atol)
+        budget = None if raw.get("budget") is None else _decode_budget(raw["budget"])
+        return LockEntry(kind, value, fingerprint, environment, rtol, atol, budget)
     return LockEntry(kind, value, fingerprint, environment)
 
 

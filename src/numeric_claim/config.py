@@ -8,13 +8,13 @@ from typing import Any
 
 from numeric_claim.errors import ConfigError
 from numeric_claim.globs import bind_files
-from numeric_claim.relations import RELATIONS
+from numeric_claim.relations import QUANTITIES, RELATIONS
 
 DEFAULT_LOCK = "claims.lock.json"
 DEFAULT_DISTRIBUTIONS = ("numpy", "scipy", "mpmath")
 DEFAULT_SCAN = ("**/*.md", "**/*.tex")
 _TOP_LEVEL_KEYS = frozenset({"claims", "lock", "distributions", "scan", "bind"})
-_BIND_KEYS = frozenset({"files", "pattern", "claim", "relation"})
+_BIND_KEYS = frozenset({"files", "pattern", "claim", "relation", "quantity"})
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class Binding:
     pattern: re.Pattern[str]
     claims: tuple[str, ...]
     relation: str
+    quantity: str
 
 
 @dataclass(frozen=True)
@@ -91,13 +92,18 @@ def _binding(index: int, table: dict[str, Any], root: Path) -> Binding:
         raise ConfigError(
             f"{where}: unknown relation {relation!r}; use one of {', '.join(RELATIONS)}"
         )
+    quantity = table.get("quantity", "value")
+    if quantity not in QUANTITIES:
+        raise ConfigError(
+            f"{where}: unknown quantity {quantity!r}; use one of {', '.join(QUANTITIES)}"
+        )
     files: list[str] = []
     for glob in globs:
         matched = bind_files(root, glob)
         if not matched:
             raise ConfigError(f"{where}: {glob!r} matches no file under {root}")
         files.extend(name for name in matched if name not in files)
-    return Binding(tuple(files), pattern, claims, relation)
+    return Binding(tuple(files), pattern, claims, relation, quantity)
 
 
 def load_config(path: Path, *, root: Path | None = None, lock: Path | None = None) -> Config:

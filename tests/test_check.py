@@ -252,9 +252,9 @@ def test_list_shows_claims_and_occurrences_without_computing(
     assert run(tmp_path, "list") == 0
     assert calls(tmp_path) == 0
     assert capsys.readouterr().out.splitlines() == [
-        "claim answer [exact] packages=pkg paths=src",
-        "README.md:1 answer eq 42",
-        "README.md:3 other lt 7",
+        "claim answer [exact] packages=pkg paths=src reference=- nudged=- ladders=- jitter=-",
+        "README.md:1 answer eq 42 quantity=value",
+        "README.md:3 other lt 7 quantity=value",
         "1 claims, 2 occurrences",
     ]
 
@@ -265,7 +265,16 @@ def test_list_json_report(tmp_path: Path) -> None:
     assert status == 0
     assert report["command"] == "list"
     assert report["claims"] == [
-        {"name": "answer", "kind": "exact", "packages": [], "paths": []},
+        {
+            "name": "answer",
+            "kind": "exact",
+            "packages": [],
+            "paths": [],
+            "reference": None,
+            "nudged": [],
+            "ladders": {},
+            "jitter": {},
+        },
     ]
     assert report["occurrences"] == [
         {
@@ -275,6 +284,7 @@ def test_list_json_report(tmp_path: Path) -> None:
             "relation": "eq",
             "literal": "42",
             "origin": "sentinel",
+            "quantity": "value",
         }
     ]
 
