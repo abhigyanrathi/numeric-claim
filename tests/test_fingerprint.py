@@ -1,16 +1,20 @@
 import importlib.metadata
 import platform
 import sys
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
+import numeric_claim
 from helpers import write
+from numeric_claim import fingerprint
 from numeric_claim.claim import ClaimContext, ClaimSpec
 from numeric_claim.errors import ClaimError
 from numeric_claim.fingerprint import compute
 
+REPOSITORY = Path(__file__).resolve().parents[1]
 SOURCE = 'def add(a, b):\n    """Add two numbers."""\n    return a + b\n'
 
 
@@ -128,6 +132,7 @@ def test_the_environment_block_records_interpreter_platform_and_versions(
     assert environment == {
         "distributions": {"lib": "4.5.6"},
         "machine": platform.machine(),
+        "numeric_claim": numeric_claim.__version__,
         "python_implementation": platform.python_implementation(),
         "python_version": platform.python_version(),
         "sys_platform": sys.platform,
@@ -193,3 +198,27 @@ def test_a_single_module_package_is_covered(project: Path, monkeypatch: pytest.M
 def test_an_unknown_package_is_an_error(project: Path) -> None:
     with pytest.raises(ClaimError, match="not found"):
         digest(project, paths=(), packages=("nc_fp_no_such_package",))
+
+
+def test_the_package_version_is_the_projects() -> None:
+    with (REPOSITORY / "pyproject.toml").open("rb") as handle:
+        version = tomllib.load(handle)["project"]["version"]
+    assert numeric_claim.__version__ == version == "0.1.0.dev0"
+
+
+def test_numeric_claims_own_version_is_part_of_it(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = digest(project)
+    monkeypatch.setattr(fingerprint, "__version__", "9.9.9")
+    assert digest(project) != before
+
+
+def test_egg_info_directories_are_ignored(project: Path) -> None:
+    before = digest(project)
+    write(project, "src/nc_fp_pkg.egg-info/PKG-INFO", "Metadata-Version: 2.1\n")
+    write(project, "src/deeper/other.egg-info/SOURCES.txt", "mod.py\n")
+    write(project, "src/deeper/__pycache__/mod.cpython-312.pyc", "junk")
+    assert digest(project) == before
+    write(project, "src/egg-info/kept.txt", "kept\n")
+    assert digest(project) != before

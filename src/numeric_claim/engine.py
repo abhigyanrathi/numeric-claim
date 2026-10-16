@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from numeric_claim import fingerprint
 from numeric_claim.budget import (
+    BAND,
     Attribution,
     Budget,
     Rung,
@@ -155,11 +156,15 @@ def resolve(reference: Literal | ClosedForm) -> Literal:
     return Literal(reference.text, value, Decimal(0), False)
 
 
-def agrees(spec: ClaimSpec, computed: Value, locked: Value) -> bool:
-    """Whether a computed value matches a locked one under the claim's kind."""
+def agrees(spec: ClaimSpec, computed: Value, locked: Value, sigma: float = 0.0) -> bool:
+    """Whether a computed value matches a locked one under the claim's kind.
+
+    ``sigma`` is the noise of a budgeted claim, of which 3 sigma are allowed when that exceeds the
+    tolerance.
+    """
     if spec.kind == "exact":
         return computed == locked
-    return abs(computed - locked) <= max(spec.atol, spec.rtol * abs(locked))
+    return abs(computed - locked) <= max(spec.atol, spec.rtol * abs(locked), BAND * sigma)
 
 
 def _stored(
@@ -226,7 +231,10 @@ def check_claim(
     if entry is None:
         note = "no lock entry; run `numeric-claim lock`"
         return outcome("unlocked", value, "computed", note, budget)
-    if not agrees(spec, value, entry.value):
+    sigma = 0.0
+    if budget is not None:
+        sigma = max(budget.sigma, 0.0 if entry.budget is None else entry.budget.sigma)
+    if not agrees(spec, value, entry.value, sigma):
         note = f"computed {value!r} but locked {entry.value!r}"
         return outcome("drift", value, "computed", note, budget)
     note = ""

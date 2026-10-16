@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from numeric_claim import __version__
 from numeric_claim.claim import ClaimContext, ClaimSpec
 from numeric_claim.errors import ClaimError
 
@@ -37,6 +38,7 @@ def environment(distributions: Iterable[str]) -> dict[str, Any]:
     return {
         "distributions": versions,
         "machine": platform.machine(),
+        "numeric_claim": __version__,
         "python_implementation": platform.python_implementation(),
         "python_version": platform.python_version(),
         "sys_platform": sys.platform,
@@ -55,7 +57,11 @@ def _files(top: Path) -> list[Path]:
         return [top]
     found: list[Path] = []
     for directory, subdirectories, names in os.walk(top):
-        subdirectories[:] = [name for name in subdirectories if name != "__pycache__"]
+        subdirectories[:] = [
+            name
+            for name in subdirectories
+            if name != "__pycache__" and not name.endswith(".egg-info")
+        ]
         found.extend(Path(directory) / name for name in names if not name.endswith(".pyc"))
     return sorted(found)
 

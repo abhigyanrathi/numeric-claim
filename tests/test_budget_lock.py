@@ -33,6 +33,11 @@ COUNT = """
 def count():
     return 3
 """
+WIDE = """
+@claim("wide", kind="seeded", jitter={"scale": 1e-6})
+def wide(*, scale=1.0):
+    return 1.0 + (scale - 1.0) * 1e6
+"""
 
 
 def stored(value: float) -> dict[str, str]:
@@ -248,7 +253,7 @@ def test_drift_compares_values_only(locked: Path) -> None:
     assert report["claims"][0]["budget"]["nudge"] != 0.125
 
     def move(claims: dict[str, Any]) -> None:
-        claims["total"]["value"] = stored(3.0)
+        claims["total"]["value"] = stored(2.0)
 
     rewrite_lock(locked, move)
     status, report = json_report(locked, "check", "--recompute")
@@ -315,3 +320,62 @@ def test_a_null_budget_reads_as_no_budget(tmp_path: Path) -> None:
     )
     path = write(tmp_path, "claims.lock.json", text)
     assert lockfile.read(path)["c"].budget is None
+
+
+@pytest.fixture
+def wide(tmp_path: Path) -> tuple[Path, float]:
+    make_project(tmp_path, logging_claims(WIDE))
+    assert run(tmp_path, "lock") == 0
+    budget = lock_data(tmp_path)["wide"]["budget"]
+    assert budget["nudge"] is None
+    sigma = float.fromhex(budget["jitter"]["hex"])
+    assert 0.1 < sigma < 1.0
+    return tmp_path, sigma
+
+
+def relock(root: Path, value: float, jitter: float | None) -> str:
+    def change(claims: dict[str, Any]) -> None:
+        claims["wide"]["value"] = stored(value)
+        if jitter is None:
+            claims["wide"].pop("budget", None)
+        else:
+            claims["wide"]["budget"]["jitter"] = stored(jitter)
+
+    rewrite_lock(root, change)
+    status, report = json_report(root, "check", "--recompute")
+    claim = report["claims"][0]
+    assert status == (0 if claim["status"] == "ok" else 1)
+    return str(claim["status"])
+
+
+@pytest.mark.parametrize(
+    ("shift", "expected"),
+    [(0.0, "ok"), (0.9, "ok"), (-0.9, "ok"), (1.1, "drift"), (-1.1, "drift")],
+)
+def test_a_budgeted_claim_drifts_only_beyond_three_sigma(
+    wide: tuple[Path, float], shift: float, expected: str
+) -> None:
+    root, sigma = wide
+    assert relock(root, 1.0 + shift * 3 * sigma, sigma) == expected
+
+
+def test_the_drift_allowance_takes_the_larger_of_the_locked_and_the_computed_sigma(
+    wide: tuple[Path, float],
+) -> None:
+    root, sigma = wide
+    assert relock(root, 1.0 + 6 * sigma, 2.1 * sigma) == "ok"
+    assert relock(root, 1.0 + 6 * sigma, 1.9 * sigma) == "drift"
+    assert relock(root, 1.0 + 2.9 * sigma, 1e-9) == "ok"
+    assert relock(root, 1.0 + 3.1 * sigma, 1e-9) == "drift"
+    assert relock(root, 1.0 + 2.9 * sigma, None) == "ok"
+    assert relock(root, 1.0 + 3.1 * sigma, None) == "drift"
+
+
+def test_a_claim_without_a_budget_keeps_its_tolerance_whatever_its_entry_holds(
+    wide: tuple[Path, float],
+) -> None:
+    root, sigma = wide
+    plain = '@claim("wide", kind="seeded")\ndef wide():\n    return 1.0\n'
+    write(root, "claims.py", logging_claims(plain))
+    assert relock(root, 1.0, 10 * sigma) == "ok"
+    assert relock(root, 1.0 + sigma, 10 * sigma) == "drift"

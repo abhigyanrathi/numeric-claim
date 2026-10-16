@@ -15,9 +15,11 @@ type Value = int | float
 DEFAULT_RTOL = 1e-12
 DEFAULT_DPS = 50
 MIN_DPS = 20
+MIN_JITTER = 1e-12
 MAX_JITTER = 1e-6
 ATTRIBUTE = "__numeric_claim__"
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+_LABELS = frozenset({"rounding", "reference", "unexplained"})
 
 
 @dataclass(frozen=True)
@@ -133,9 +135,10 @@ def _ladder(name: str, default: Value, settings: Iterable[Value]) -> tuple[Value
 def _amplitude(name: str, default: Value, amplitude: object) -> float:
     if not isinstance(default, float):
         raise ValueError(f"jitter needs a float default, and that of {name!r} is {default!r}")
-    if not _numeric(amplitude) or not 0 < amplitude <= MAX_JITTER:
+    if not _numeric(amplitude) or not MIN_JITTER <= amplitude <= MAX_JITTER:
         raise ValueError(
-            f"the jitter amplitude for {name!r} must be in (0, {MAX_JITTER}], got {amplitude!r}"
+            f"the jitter amplitude for {name!r} must be in [{MIN_JITTER}, {MAX_JITTER}], "
+            f"got {amplitude!r}"
         )
     return float(amplitude)
 
@@ -164,6 +167,9 @@ def _probes(
         for name in declared:
             if name not in defaults:
                 raise ValueError(f"{label} names {name!r}, which is not a keyword-only parameter")
+    for name in ladders:
+        if name in _LABELS:
+            raise ValueError(f"a ladder parameter may not be named {name!r}, an attribution label")
     if not defaults:
         return None
     varied = {*ladders, *jitter}

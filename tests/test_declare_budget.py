@@ -127,13 +127,13 @@ INVALID: list[tuple[dict[str, Any], Callable[..., Any], str]] = [
     ({"ladders": {"w": [True]}}, lambda *, x=1.0, w=10.0: x, "an int or a finite float"),
     ({"ladders": {"w": [math.inf]}}, lambda *, x=1.0, w=10.0: x, "an int or a finite float"),
     ({"ladders": {"w": [11.0, math.nan]}}, lambda *, x=1.0, w=10.0: x, "a finite float"),
-    ({"jitter": {"w": 0}}, lambda *, w=10.0: w, "must be in (0, 1e-06], got 0"),
-    ({"jitter": {"w": 0.0}}, lambda *, w=10.0: w, "must be in (0, 1e-06]"),
-    ({"jitter": {"w": -1e-9}}, lambda *, w=10.0: w, "must be in (0, 1e-06]"),
-    ({"jitter": {"w": 1.0000001e-6}}, lambda *, w=10.0: w, "must be in (0, 1e-06]"),
-    ({"jitter": {"w": math.nan}}, lambda *, w=10.0: w, "must be in (0, 1e-06]"),
-    ({"jitter": {"w": "1e-9"}}, lambda *, w=10.0: w, "must be in (0, 1e-06]"),
-    ({"jitter": {"w": True}}, lambda *, w=10.0: w, "must be in (0, 1e-06]"),
+    ({"jitter": {"w": 0}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06], got 0"),
+    ({"jitter": {"w": 0.0}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06]"),
+    ({"jitter": {"w": -1e-9}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06]"),
+    ({"jitter": {"w": 1.0000001e-6}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06]"),
+    ({"jitter": {"w": math.nan}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06]"),
+    ({"jitter": {"w": "1e-9"}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06]"),
+    ({"jitter": {"w": True}}, lambda *, w=10.0: w, "must be in [1e-12, 1e-06]"),
     ({"jitter": {"n": 1e-9}}, lambda *, x=1.0, n=10: x, "jitter needs a float default"),
     ({}, lambda *, n=10: n, "needs a nonzero float input to nudge or a jitter"),
     ({}, lambda *, zero=0.0, negative_zero=-0.0: zero, "needs a nonzero float input"),
@@ -149,11 +149,33 @@ def test_an_invalid_budget_raises_when_the_decorator_runs(
         claim("c", **{"kind": "seeded", **options})(function)
 
 
-@pytest.mark.parametrize("amplitude", [1e-6, 1e-9, 5e-324])
+@pytest.mark.parametrize("amplitude", [1e-6, 1e-9, 1e-12])
 def test_a_jitter_amplitude_up_to_one_in_a_million_is_accepted(amplitude: float) -> None:
     spec = declared(lambda *, w=10.0: w, jitter={"w": amplitude})
     assert spec.probes is not None
     assert spec.probes.jitter == {"w": amplitude}
+
+
+@pytest.mark.parametrize("amplitude", [9.999e-13, 1e-16, 5e-324])
+def test_a_jitter_amplitude_below_one_in_a_trillion_is_rejected(amplitude: float) -> None:
+    message = f"must be in [1e-12, 1e-06], got {amplitude!r}"
+    with pytest.raises(ValueError, match=re.escape(message)):
+        declared(lambda *, w=10.0: w, jitter={"w": amplitude})
+
+
+def labelled(
+    *, x: float = 1.5, rounding: int = 1, reference: int = 1, unexplained: int = 1
+) -> float:
+    return x + rounding + reference + unexplained
+
+
+@pytest.mark.parametrize("name", ["rounding", "reference", "unexplained"])
+def test_a_ladder_parameter_may_not_be_named_like_an_attribution_label(name: str) -> None:
+    with pytest.raises(ValueError, match=f"a ladder parameter may not be named '{name}'"):
+        declared(labelled, ladders={name: [2]})
+    spec = declared(labelled, jitter={"x": 1e-9})
+    assert spec.probes is not None
+    assert name in spec.probes.defaults
 
 
 def test_an_invalid_budget_in_a_claims_module_is_a_configuration_error(
