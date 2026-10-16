@@ -1,0 +1,58 @@
+claims = ["claims.py"]
+distributions = ["numpy", "scipy"]
+
+[[bind]]
+files = ["README.md"]
+pattern = 'ratio (\d+\.\d+) for 13 vs 208 steps'
+claim = "ratio_13_208"
+
+[[bind]]
+files = ["README.md"]
+pattern = '(\d+\.\d+) for 13 vs 52\b'
+claim = "ratio_13_52"
+
+[[bind]]
+files = ["README.md"]
+pattern = 'dispersion is (\d+\.\d+)\S GBM'
+claim = "merton_gbm_208"
+
+[[bind]]
+files = ["README.md"]
+pattern = 'mean P&L \S (\S\d+\.\d+)'
+claim = "merton_mean_208"
+
+[[bind]]
+files = ["tests/test_ch5_hedging.py"]
+pattern = 'assert (\d+\.\d+) < pnl_13\.std\(\) / pnl_208\.std\(\)'
+claim = "ratio_13_208"
+relation = "gt"
+
+[[bind]]
+files = ["tests/test_ch5_hedging.py"]
+pattern = 'pnl_13\.std\(\) / pnl_208\.std\(\) < (\d+\.\d+)'
+claim = "ratio_13_208"
+relation = "lt"
+
+[[bind]]
+files = ["tests/test_ch5_hedging.py"]
+pattern = 'assert (\d+\.\d+) < pnl_13\.std\(\) / pnl_52\.std\(\)'
+claim = "ratio_13_52"
+relation = "gt"
+
+[[bind]]
+files = ["tests/test_ch5_hedging.py"]
+pattern = 'pnl_13\.std\(\) / pnl_52\.std\(\) < (\d+\.\d+)'
+claim = "ratio_13_52"
+relation = "lt"
+
+[[bind]]
+files = ["tests/test_ch5_hedging.py"]
+pattern = 'merton\.std\(\) > (\d+\.\d+) \* gbm\.std\(\)'
+claim = "merton_gbm_208"
+relation = "gt"
+
+[[bind]]
+files = ["tests/test_ch5_hedging.py"]
+pattern = 'merton\.mean\(\) < (-\d+\.\d+)'
+claim = "merton_mean_208"
+relation = "lt"

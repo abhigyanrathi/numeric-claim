@@ -1,5 +1,6 @@
 """Helpers shared by the tests: building small projects and running the command line."""
 
+import importlib.util
 import json
 import textwrap
 from collections.abc import Mapping
@@ -106,3 +107,23 @@ def lock_data(root: Path) -> dict[str, Any]:
     text = (root / "claims.lock.json").read_text(encoding="utf-8")
     claims: dict[str, Any] = json.loads(text)["claims"]
     return claims
+
+
+def package_files(top: Path) -> dict[str, bytes]:
+    """The bytes of each file under ``top`` by relative path, CRLF read as LF, caches skipped."""
+    return {
+        path.relative_to(top).as_posix(): path.read_bytes().replace(b"\r\n", b"\n")
+        for path in top.rglob("*")
+        if path.is_file() and "__pycache__" not in path.relative_to(top).parts
+    }
+
+
+def assert_installed_package_is(pinned: Path) -> None:
+    """Fail unless the installed ``cosfin`` package holds exactly the files under ``pinned``."""
+    spec = importlib.util.find_spec("cosfin")
+    assert spec is not None
+    assert spec.submodule_search_locations
+    installed = package_files(Path(spec.submodule_search_locations[0]))
+    expected = package_files(pinned)
+    assert sorted(installed) == sorted(expected)
+    assert [name for name in sorted(expected) if installed[name] != expected[name]] == []

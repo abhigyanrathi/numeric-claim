@@ -1,6 +1,5 @@
 """Gate 2: the precision bounds in cosfin's replications.py, judged by error budgets."""
 
-import importlib.util
 import json
 import os
 import subprocess
@@ -9,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from helpers import assert_installed_package_is
 
 COMMIT = "39dee29614080f364f8c23c50f2b37279214f1ea"
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -47,24 +48,6 @@ def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
         env=environment,
         check=False,
     )
-
-
-def package_files(top: Path) -> dict[str, bytes]:
-    return {
-        path.relative_to(top).as_posix(): path.read_bytes().replace(b"\r\n", b"\n")
-        for path in top.rglob("*")
-        if path.is_file() and "__pycache__" not in path.relative_to(top).parts
-    }
-
-
-def assert_installed_package_is(pinned: Path) -> None:
-    spec = importlib.util.find_spec("cosfin")
-    assert spec is not None
-    assert spec.submodule_search_locations
-    installed = package_files(Path(spec.submodule_search_locations[0]))
-    expected = package_files(pinned)
-    assert sorted(installed) == sorted(expected)
-    assert [name for name in sorted(expected) if installed[name] != expected[name]] == []
 
 
 def assert_expected_report(report: dict[str, Any]) -> None:
