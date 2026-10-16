@@ -10,13 +10,14 @@ from typing import TextIO
 from numeric_claim import lockfile
 from numeric_claim.claim import ClaimContext
 from numeric_claim.config import Config, load_config
+from numeric_claim.diff import committed, compare
 from numeric_claim.engine import check_claim, judge_all, lock_claim
 from numeric_claim.errors import ConfigError
 from numeric_claim.loader import LoadedClaim, load_claims
-from numeric_claim.report import Report, check_report, list_report, lock_report
+from numeric_claim.report import Report, check_report, diff_report, list_report, lock_report
 from numeric_claim.scan import collect
 
-COMMANDS = ("lock", "check", "list")
+COMMANDS = ("lock", "check", "list", "diff")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -32,7 +33,14 @@ def _parser() -> argparse.ArgumentParser:
         choices=COMMANDS,
         help="lock: compute every claim and write the lock file; "
         "check: compare documents and the lock with the code; "
-        "list: show claims and document occurrences without computing",
+        "list: show claims and document occurrences without computing; "
+        "diff: compare the lock file committed at a git revision with the current one",
+    )
+    parser.add_argument(
+        "revision",
+        nargs="?",
+        metavar="REV",
+        help="diff only: the git revision of the lock file to compare with (default: HEAD)",
     )
     parser.add_argument(
         "--config",
@@ -79,10 +87,22 @@ def _require_references(config: Config, claims: Sequence[LoadedClaim]) -> None:
                 )
 
 
+def _diff(config: Config, revision: str) -> Report:
+    if not config.lock.exists():
+        raise ConfigError(f"lock file {config.lock} does not exist; run `numeric-claim lock`")
+    current = lockfile.read(config.lock)
+    changes = compare(committed(config.lock, revision), current, config.alpha)
+    return diff_report(changes, revision)
+
+
 def _run(args: argparse.Namespace) -> Report:
     if args.recompute and args.command != "check":
         raise ConfigError("--recompute applies to the check command only")
+    if args.revision is not None and args.command != "diff":
+        raise ConfigError("a revision applies to the diff command only")
     config = load_config(args.config, root=args.root, lock=args.lock)
+    if args.command == "diff":
+        return _diff(config, args.revision or "HEAD")
     claims = load_claims(config.claims)
     _require_references(config, claims)
     if args.command == "list":

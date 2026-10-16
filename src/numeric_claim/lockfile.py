@@ -156,14 +156,8 @@ def write(path: Path, entries: Mapping[str, LockEntry]) -> None:
         raise ConfigError(f"cannot write lock file {path}: {exc.strerror or exc}") from exc
 
 
-def read(path: Path) -> dict[str, LockEntry]:
-    """Read a lock file; a missing file is an empty lock."""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return {}
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ConfigError(f"cannot read lock file {path}: {exc}") from exc
+def loads(text: str, where: str) -> dict[str, LockEntry]:
+    """The entries of lock file text; ``where`` names the file in errors."""
     try:
         document = json.loads(text)
         if not isinstance(document, dict) or document.get("format") != FORMAT:
@@ -173,4 +167,15 @@ def read(path: Path) -> dict[str, LockEntry]:
             raise ValueError("'claims' is not an object")
         return {name: _decode_entry(raw) for name, raw in claims.items()}
     except (ValueError, OverflowError) as exc:
-        raise ConfigError(f"invalid lock file {path}: {exc}") from exc
+        raise ConfigError(f"invalid lock file {where}: {exc}") from exc
+
+
+def read(path: Path) -> dict[str, LockEntry]:
+    """Read a lock file; a missing file is an empty lock."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"cannot read lock file {path}: {exc}") from exc
+    return loads(text, str(path))

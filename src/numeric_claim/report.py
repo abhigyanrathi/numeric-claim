@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from numeric_claim.claim import ClaimSpec, Value
+from numeric_claim.diff import Change
 from numeric_claim.engine import ClaimOutcome, LockOutcome, OccurrenceResult
 from numeric_claim.loader import LoadedClaim
 from numeric_claim.scan import Occurrence
@@ -239,6 +240,42 @@ def _declared_text(declared: dict[str, Any]) -> str:
         f"reference={declared['reference'] or '-'} nudged={','.join(declared['nudged']) or '-'} "
         f"ladders={ladders or '-'} jitter={jitter or '-'}"
     )
+
+
+def _change_line(change: Change) -> str:
+    line = f"claim {change.name} {change.status} old={_show(change.old)} new={_show(change.new)}"
+    if change.fingerprint_changed is not None:
+        line += f" fingerprint={'changed' if change.fingerprint_changed else 'same'}"
+    if change.environment is not None:
+        line += f" environment={','.join(change.environment) or '-'}"
+    return line
+
+
+def diff_report(changes: Sequence[Change], revision: str) -> Report:
+    """Report for ``diff``: exit 1 if a claim was added, removed or moved since ``revision``."""
+    exit_code = 1 if any(c.status in ("added", "removed", "moved") for c in changes) else 0
+    lines = [_change_line(change) for change in changes]
+    lines.append(
+        f"{len(changes)} claims against {revision} ({_tally(c.status for c in changes)}): "
+        f"exit {exit_code}"
+    )
+    data = {
+        "command": "diff",
+        "exit_code": exit_code,
+        "revision": revision,
+        "claims": [
+            {
+                "name": c.name,
+                "status": c.status,
+                "old_value": c.old,
+                "new_value": c.new,
+                "fingerprint_changed": c.fingerprint_changed,
+                "environment": None if c.environment is None else list(c.environment),
+            }
+            for c in changes
+        ],
+    }
+    return Report("\n".join(lines) + "\n", data, exit_code)
 
 
 def _replicates(spec: ClaimSpec) -> dict[str, int]:
