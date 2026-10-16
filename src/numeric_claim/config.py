@@ -13,7 +13,8 @@ from numeric_claim.relations import QUANTITIES, RELATIONS
 DEFAULT_LOCK = "claims.lock.json"
 DEFAULT_DISTRIBUTIONS = ("numpy", "scipy", "mpmath")
 DEFAULT_SCAN = ("**/*.md", "**/*.tex")
-_TOP_LEVEL_KEYS = frozenset({"claims", "lock", "distributions", "scan", "exclude", "bind"})
+DEFAULT_ALPHA = 0.01
+_TOP_LEVEL_KEYS = frozenset({"claims", "lock", "distributions", "scan", "exclude", "alpha", "bind"})
 _BIND_KEYS = frozenset({"files", "pattern", "claim", "relation", "quantity"})
 
 
@@ -40,6 +41,7 @@ class Config:
     distributions: tuple[str, ...]
     scan: tuple[str, ...]
     exclude: tuple[str, ...]
+    alpha: float
     bindings: tuple[Binding, ...]
 
 
@@ -61,6 +63,13 @@ def _string_list(
     if required and not value:
         raise ConfigError(f"{where}: {key!r} must not be empty")
     return tuple(value)
+
+
+def _alpha(table: dict[str, Any], where: str) -> float:
+    value = table.get("alpha", DEFAULT_ALPHA)
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value < 1:
+        raise ConfigError(f"{where}: 'alpha' must be a number between 0 and 1, got {value!r}")
+    return float(value)
 
 
 def _check_keys(table: dict[str, Any], allowed: frozenset[str], where: str) -> None:
@@ -139,5 +148,6 @@ def load_config(path: Path, *, root: Path | None = None, lock: Path | None = Non
         distributions=_string_list(table, "distributions", where, default=DEFAULT_DISTRIBUTIONS),
         scan=_string_list(table, "scan", where, default=DEFAULT_SCAN),
         exclude=_string_list(table, "exclude", where),
+        alpha=_alpha(table, where),
         bindings=tuple(_binding(i, t, base) for i, t in enumerate(bind_tables, start=1)),
     )

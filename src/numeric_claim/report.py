@@ -27,7 +27,7 @@ def _show(value: Value | None) -> str:
     return "-" if value is None else repr(value)
 
 
-def _float(number: Decimal | None) -> float | None:
+def _float(number: Decimal | float | None) -> float | None:
     """``number`` as a float; None if there is none or it is beyond a float's range."""
     if number is None:
         return None
@@ -81,23 +81,38 @@ def _budget_data(outcome: ClaimOutcome) -> dict[str, Any] | None:
     }
 
 
+def _random_data(outcome: ClaimOutcome) -> dict[str, Any] | None:
+    summary = outcome.summary
+    if summary is None:
+        return None
+    return {
+        "replicates": summary.replicates,
+        "mean": summary.mean,
+        "sd": summary.sd,
+        "se": summary.se,
+    }
+
+
 def _claim_line(outcome: ClaimOutcome) -> str:
     line = f"claim {outcome.name} [{outcome.kind}] {outcome.status} value={_show(outcome.value)}"
     if outcome.source != "-":
         line += f" ({outcome.source})"
-    budget, found = outcome.budget, outcome.attribution
+    budget, found, summary = outcome.budget, outcome.attribution, outcome.summary
     if budget is not None:
         line += f" sigma={_brief(budget.sigma)}"
         line += f" (nudge={_brief(budget.nudge)}, jitter={_brief(budget.jitter)})"
     if found is not None:
         line += f" error={_brief(_float(found.error))} attribution={found.label}"
+    if summary is not None:
+        line += f" mean={_brief(summary.mean)} sd={_brief(summary.sd)} se={_brief(summary.se)}"
+        line += f" R={summary.replicates}"
     if outcome.note:
         line += f": {outcome.note}"
     return line
 
 
 def _occurrence_line(result: OccurrenceResult) -> str:
-    occurrence, found = result.occurrence, result.verdict
+    occurrence, found, test = result.occurrence, result.verdict, result.test
     line = (
         f"{occurrence.file}:{occurrence.line} {occurrence.claim} {occurrence.relation} "
         f"{occurrence.literal} value={_show(result.value)} {result.result}"
@@ -109,12 +124,23 @@ def _occurrence_line(result: OccurrenceResult) -> str:
     if found is not None:
         line += f" margin={_brief(_float(found.margin))} 3sigma={_brief(_float(found.band))}"
         line += f" verdict={found.label}"
+    if test is not None:
+        line += f" t={_brief(test.t)} p={_brief(test.p)} p_holm={_brief(test.p_holm)}"
+        line += f" verdict={test.label}"
     if result.note:
         line += f": {result.note}"
     return line
 
 
-def check_report(outcomes: Sequence[ClaimOutcome], results: Sequence[OccurrenceResult]) -> Report:
+def _verdict(result: OccurrenceResult) -> str | None:
+    if result.verdict is not None:
+        return result.verdict.label
+    return None if result.test is None else result.test.label
+
+
+def check_report(
+    outcomes: Sequence[ClaimOutcome], results: Sequence[OccurrenceResult], alpha: float
+) -> Report:
     """Report for ``check``: exit 1 unless every claim is ok and every occurrence passes."""
     failing = any(o.status != "ok" for o in outcomes) or any(r.result != "pass" for r in results)
     exit_code = 1 if failing else 0
@@ -127,6 +153,7 @@ def check_report(outcomes: Sequence[ClaimOutcome], results: Sequence[OccurrenceR
     data = {
         "command": "check",
         "exit_code": exit_code,
+        "alpha": alpha,
         "claims": [
             {
                 "name": o.name,
@@ -138,6 +165,7 @@ def check_report(outcomes: Sequence[ClaimOutcome], results: Sequence[OccurrenceR
                 "note": o.note,
                 "reference": o.reference,
                 "budget": _budget_data(o),
+                "random": _random_data(o),
             }
             for o in outcomes
         ],
@@ -150,7 +178,10 @@ def check_report(outcomes: Sequence[ClaimOutcome], results: Sequence[OccurrenceR
                 "compared": _float(r.compared),
                 "margin": None if r.verdict is None else _float(r.verdict.margin),
                 "band": None if r.verdict is None else _float(r.verdict.band),
-                "verdict": None if r.verdict is None else r.verdict.label,
+                "verdict": _verdict(r),
+                "t": None if r.test is None else _float(r.test.t),
+                "p": None if r.test is None else r.test.p,
+                "p_holm": None if r.test is None else r.test.p_holm,
             }
             for r in results
         ],
@@ -210,16 +241,24 @@ def _declared_text(declared: dict[str, Any]) -> str:
     )
 
 
+def _replicates(spec: ClaimSpec) -> dict[str, int]:
+    return {} if spec.replicates is None else {"replicates": spec.replicates}
+
+
 def list_report(claims: Sequence[LoadedClaim], occurrences: Sequence[Occurrence]) -> Report:
-    """Report for ``list``: declared claims and found occurrences, nothing computed."""
+    """Report for ``list``: declared claims and found occurrences, nothing computed.
+
+    A random claim also shows its number of replicates.
+    """
     lines = []
     for loaded in claims:
         spec = loaded.spec
         packages = ",".join(spec.packages) or "-"
         paths = ",".join(spec.paths) or "-"
+        replicates = "" if spec.replicates is None else f" replicates={spec.replicates}"
         lines.append(
             f"claim {spec.name} [{spec.kind}] packages={packages} paths={paths} "
-            f"{_declared_text(_declared(spec))}"
+            f"{_declared_text(_declared(spec))}{replicates}"
         )
     for occurrence in occurrences:
         lines.append(
@@ -237,6 +276,7 @@ def list_report(claims: Sequence[LoadedClaim], occurrences: Sequence[Occurrence]
                 "packages": list(c.spec.packages),
                 "paths": list(c.spec.paths),
                 **_declared(c.spec),
+                **_replicates(c.spec),
             }
             for c in claims
         ],

@@ -1,6 +1,7 @@
 """The committed lock file: its entries, reading and deterministic writing."""
 
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,14 +10,18 @@ from typing import Any
 from numeric_claim.budget import Budget, Rung
 from numeric_claim.claim import Value
 from numeric_claim.errors import ConfigError
+from numeric_claim.montecarlo import Summary
 
 FORMAT = 1
-KINDS = ("exact", "seeded")
+KINDS = ("exact", "seeded", "random")
 
 
 @dataclass(frozen=True)
 class LockEntry:
-    """One locked claim value with the fingerprint it was computed under."""
+    """One locked claim value with the fingerprint it was computed under.
+
+    A random claim's value is the mean of its replicates, which ``summary`` describes.
+    """
 
     kind: str
     value: Value
@@ -25,6 +30,7 @@ class LockEntry:
     rtol: float = 0.0
     atol: float = 0.0
     budget: Budget | None = None
+    summary: Summary | None = None
 
 
 def _encode_value(value: Value) -> int | dict[str, str]:
@@ -89,6 +95,16 @@ def _decode_budget(raw: Any) -> Budget:
     return Budget(nudge, jitter, ladders)
 
 
+def _decode_summary(raw: dict[str, Any], mean: Value) -> Summary:
+    replicates = raw.get("replicates")
+    if isinstance(replicates, bool) or not isinstance(replicates, int) or replicates < 2:
+        raise ValueError(f"expected at least 2 replicates, got {replicates!r}")
+    summary = Summary(float(mean), float(_decode_value(raw.get("sd"))), replicates)
+    if not math.isfinite(summary.mean) or not math.isfinite(summary.sd) or summary.sd < 0:
+        raise ValueError(f"unusable mean or standard deviation: {summary.mean!r}, {summary.sd!r}")
+    return summary
+
+
 def _encode_entry(entry: LockEntry) -> dict[str, Any]:
     encoded: dict[str, Any] = {
         "environment": entry.environment,
@@ -96,11 +112,14 @@ def _encode_entry(entry: LockEntry) -> dict[str, Any]:
         "kind": entry.kind,
         "value": _encode_value(entry.value),
     }
-    if entry.kind == "seeded":
+    if entry.kind in ("seeded", "random"):
         encoded["rtol"] = entry.rtol
         encoded["atol"] = entry.atol
     if entry.budget is not None:
         encoded["budget"] = _encode_budget(entry.budget)
+    if entry.summary is not None:
+        encoded["replicates"] = entry.summary.replicates
+        encoded["sd"] = _encode_value(entry.summary.sd)
     return encoded
 
 
@@ -115,6 +134,10 @@ def _decode_entry(raw: Any) -> LockEntry:
         rtol, atol = _number(raw.get("rtol")), _number(raw.get("atol"))
         budget = None if raw.get("budget") is None else _decode_budget(raw["budget"])
         return LockEntry(kind, value, fingerprint, environment, rtol, atol, budget)
+    if kind == "random":
+        rtol, atol = _number(raw.get("rtol")), _number(raw.get("atol"))
+        summary = _decode_summary(raw, value)
+        return LockEntry(kind, summary.mean, fingerprint, environment, rtol, atol, None, summary)
     return LockEntry(kind, value, fingerprint, environment)
 
 

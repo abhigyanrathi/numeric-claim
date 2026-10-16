@@ -106,10 +106,12 @@ def _run(args: argparse.Namespace) -> Report:
             stored.get(loaded.spec.name),
             recompute=args.recompute,
             error_bound=loaded.spec.name in error_bound,
+            alpha=config.alpha,
         )
         for loaded in claims
     ]
-    return check_report(outcomes, judge_all(occurrences, claims, outcomes))
+    results = judge_all(occurrences, claims, outcomes, config.alpha)
+    return check_report(outcomes, results, config.alpha)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

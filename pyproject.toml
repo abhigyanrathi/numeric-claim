@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy", "numpy", "mpmath"]
+dev = ["pytest", "ruff", "mypy", "numpy", "mpmath", "scipy"]
 mpmath = ["mpmath"]
 
 [project.scripts]
@@ -37,5 +37,5 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["mpmath", "mpmath.*"]
+module = ["mpmath", "mpmath.*", "scipy", "scipy.*"]
 ignore_missing_imports = true

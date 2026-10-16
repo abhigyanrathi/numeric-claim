@@ -17,6 +17,9 @@ DEFAULT_DPS = 50
 MIN_DPS = 20
 MIN_JITTER = 1e-12
 MAX_JITTER = 1e-6
+DEFAULT_REPLICATES = 32
+MIN_REPLICATES = 8
+MAX_REPLICATES = 100_000
 ATTRIBUTE = "__numeric_claim__"
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
 _LABELS = frozenset({"rounding", "reference", "unexplained"})
@@ -24,10 +27,11 @@ _LABELS = frozenset({"rounding", "reference", "unexplained"})
 
 @dataclass(frozen=True)
 class ClaimContext:
-    """Where the project and its configuration live."""
+    """Where the project and its configuration live, and the seed of a random claim's replicate."""
 
     root: Path
     config_dir: Path
+    seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +65,7 @@ class ClaimSpec:
     paths: tuple[str, ...]
     reference: Literal | ClosedForm | None = None
     probes: Probes | None = None
+    replicates: int | None = None
 
     def tolerance(self, value: Value) -> float:
         """Largest difference from ``value`` that still counts as agreement."""
@@ -193,6 +198,34 @@ def _probes(
     return Probes(defaults, nudged, amplitudes, rungs)
 
 
+def _replicates(kind: str, replicates: object) -> int | None:
+    if kind != "random":
+        if replicates is not None:
+            raise ValueError(f"only a random claim takes replicates, and this one is {kind!r}")
+        return None
+    if replicates is None:
+        return DEFAULT_REPLICATES
+    if (
+        isinstance(replicates, bool)
+        or not isinstance(replicates, int)
+        or not MIN_REPLICATES <= replicates <= MAX_REPLICATES
+    ):
+        raise ValueError(
+            f"replicates must be an int from {MIN_REPLICATES} to {MAX_REPLICATES}, "
+            f"got {replicates!r}"
+        )
+    return replicates
+
+
+def _check_replicate(function: Callable[..., Any]) -> None:
+    parameters = inspect.signature(function).parameters.values()
+    positional = [p for p in parameters if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    if len(positional) != 1 or any(p.kind == p.KEYWORD_ONLY for p in parameters):
+        raise ValueError(
+            "a random claim takes one positional ClaimContext and no keyword-only parameters"
+        )
+
+
 def claim[F: Callable[..., Any]](
     name: str,
     *,
@@ -204,12 +237,14 @@ def claim[F: Callable[..., Any]](
     reference: str | ClosedForm | None = None,
     ladders: Mapping[str, Iterable[Value]] | None = None,
     jitter: Mapping[str, float] | None = None,
+    replicates: int | None = None,
 ) -> Callable[[F], F]:
     """Declare a computation whose value documents may quote.
 
     A seeded claim may name the ``reference`` it reproduces. Keyword-only parameters with numeric
     defaults give it an error budget: ``ladders`` lists refinements of some of them, ``jitter``
-    relative amplitudes for others, and the remaining nonzero float defaults are nudged.
+    relative amplitudes for others, and the remaining nonzero float defaults are nudged. A random
+    claim takes one ClaimContext and runs ``replicates`` times, each with the seed it is given.
     """
     if not _NAME.fullmatch(name):
         raise ValueError(f"invalid claim name {name!r}: use letters, digits, '_', '.' and '-'")
@@ -221,15 +256,25 @@ def claim[F: Callable[..., Any]](
         tolerances = (0.0, 0.0)
     elif kind == "seeded":
         tolerances = (_tolerance("rtol", rtol, DEFAULT_RTOL), _tolerance("atol", atol, 0.0))
+    elif kind == "random":
+        if reference is not None or ladders is not None or jitter is not None:
+            raise ValueError("a random claim takes no reference, ladders or jitter")
+        tolerances = (_tolerance("rtol", rtol, 0.0), _tolerance("atol", atol, 0.0))
     else:
-        raise ValueError(f"unknown claim kind {kind!r}: use 'exact' or 'seeded'")
+        raise ValueError(f"unknown claim kind {kind!r}: use 'exact', 'seeded' or 'random'")
+    count = _replicates(kind, replicates)
     sources = (_strings("packages", packages), _strings("paths", paths))
     target = _reference(reference)
     settings = (_mapping("ladders", ladders), _mapping("jitter", jitter))
 
     def decorate(function: F) -> F:
-        probes = _probes(function, kind, *settings)
-        setattr(function, ATTRIBUTE, ClaimSpec(name, kind, *tolerances, *sources, target, probes))
+        probes = None
+        if kind == "random":
+            _check_replicate(function)
+        else:
+            probes = _probes(function, kind, *settings)
+        spec = ClaimSpec(name, kind, *tolerances, *sources, target, probes, count)
+        setattr(function, ATTRIBUTE, spec)
         return function
 
     return decorate
