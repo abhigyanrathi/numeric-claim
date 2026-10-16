@@ -13,7 +13,7 @@ from numeric_claim.relations import QUANTITIES, RELATIONS
 DEFAULT_LOCK = "claims.lock.json"
 DEFAULT_DISTRIBUTIONS = ("numpy", "scipy", "mpmath")
 DEFAULT_SCAN = ("**/*.md", "**/*.tex")
-_TOP_LEVEL_KEYS = frozenset({"claims", "lock", "distributions", "scan", "bind"})
+_TOP_LEVEL_KEYS = frozenset({"claims", "lock", "distributions", "scan", "exclude", "bind"})
 _BIND_KEYS = frozenset({"files", "pattern", "claim", "relation", "quantity"})
 
 
@@ -39,6 +39,7 @@ class Config:
     lock: Path
     distributions: tuple[str, ...]
     scan: tuple[str, ...]
+    exclude: tuple[str, ...]
     bindings: tuple[Binding, ...]
 
 
@@ -137,5 +138,6 @@ def load_config(path: Path, *, root: Path | None = None, lock: Path | None = Non
         lock=lock.resolve() if lock is not None else directory / lock_name,
         distributions=_string_list(table, "distributions", where, default=DEFAULT_DISTRIBUTIONS),
         scan=_string_list(table, "scan", where, default=DEFAULT_SCAN),
+        exclude=_string_list(table, "exclude", where),
         bindings=tuple(_binding(i, t, base) for i, t in enumerate(bind_tables, start=1)),
     )

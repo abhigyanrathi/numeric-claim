@@ -16,6 +16,9 @@ _SENTINEL = re.compile(
 _MACRO = re.compile(
     r"\\claim\s*(?:\[(?P<relation>[^\]]*)\]\s*)?\{(?P<name>[^{}]*)\}\s*\{(?P<literal>[^{}]*)\}"
 )
+_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+_CLOSING_FENCE = re.compile(r" {0,3}(`{3,}|~{3,}) *")
+_BACKTICKS = re.compile(r"`+")
 
 
 @dataclass(frozen=True)
@@ -42,12 +45,49 @@ def _relation(file: str, line: int, raw: str | None) -> str:
     return relation
 
 
+def _blank_spans(line: str) -> str:
+    runs = list(_BACKTICKS.finditer(line))
+    pieces: list[str] = []
+    position = index = 0
+    while index < len(runs):
+        opening = runs[index]
+        width = len(opening[0])
+        partner = next((j for j in range(index + 1, len(runs)) if len(runs[j][0]) == width), None)
+        if partner is None:
+            index += 1
+            continue
+        end = runs[partner].end()
+        pieces += [line[position : opening.start()], " " * (end - opening.start())]
+        position, index = end, partner + 1
+    return "".join(pieces) + line[position:]
+
+
+def blank_code(text: str) -> str:
+    """Markdown ``text`` with fenced code blocks and inline code spans turned into spaces."""
+    lines = text.split("\n")
+    fence = ""
+    for number, line in enumerate(lines):
+        if not fence:
+            opening = _FENCE.match(line)
+            if opening is None:
+                lines[number] = _blank_spans(line)
+                continue
+            fence = opening[1]
+        else:
+            closing = _CLOSING_FENCE.fullmatch(line)
+            if closing and closing[1][0] == fence[0] and len(closing[1]) >= len(fence):
+                fence = ""
+        lines[number] = " " * len(line)
+    return "\n".join(lines)
+
+
 def find_markers(file: str, text: str) -> list[Occurrence]:
-    """Markdown sentinels and LaTeX macros in ``text``."""
+    """Markdown sentinels and LaTeX macros in ``text``, outside code if ``file`` is Markdown."""
+    searched = blank_code(text) if file.endswith(".md") else text
     found: list[Occurrence] = []
     for origin, regex in (("sentinel", _SENTINEL), ("latex", _MACRO)):
-        for match in regex.finditer(text):
-            line = _line(text, match.start())
+        for match in regex.finditer(searched):
+            line = _line(searched, match.start())
             relation = _relation(file, line, match["relation"])
             name, literal = match["name"].strip(), match["literal"].strip()
             found.append(Occurrence(file, line, name, relation, literal, origin))
@@ -87,7 +127,7 @@ def collect(config: Config) -> list[Occurrence]:
         return texts[file]
 
     found: list[Occurrence] = []
-    for file in scan_files(config.root, config.scan):
+    for file in scan_files(config.root, config.scan, config.exclude):
         found.extend(find_markers(file, text_of(file)))
     for binding in config.bindings:
         for file in binding.files:

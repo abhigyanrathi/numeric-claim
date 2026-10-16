@@ -39,13 +39,15 @@ def matches(path: str, pattern: str) -> bool:
     return _match(tuple(path.split("/")), tuple(pattern.split("/")))
 
 
-def scan_files(root: Path, patterns: Iterable[str]) -> list[str]:
-    """Files under ``root`` matching any pattern, skipping ignored directories."""
+def scan_files(root: Path, patterns: Iterable[str], excluded: Iterable[str] = ()) -> list[str]:
+    """Files under ``root`` matching a pattern and no excluded one, skipping ignored directories."""
     wanted = [PurePosixPath(pattern).as_posix() for pattern in patterns]
+    unwanted = [PurePosixPath(pattern).as_posix() for pattern in excluded]
     return [
         path
         for path in walk_files(root, prune=True)
         if any(matches(path, pattern) for pattern in wanted)
+        and not any(matches(path, pattern) for pattern in unwanted)
     ]
 
 

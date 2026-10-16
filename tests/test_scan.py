@@ -2,12 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from helpers import DEFAULT_CONFIG, make_project
+from helpers import DEFAULT_CONFIG, make_project, run
 from numeric_claim.config import load_config
 from numeric_claim.errors import ConfigError
 from numeric_claim.globs import matches
 from numeric_claim.scan import Occurrence, collect
 
+REPOSITORY = Path(__file__).resolve().parents[1]
 BIND = """
 [[bind]]
 files = {files}
@@ -177,3 +178,141 @@ def test_occurrences_are_ordered_by_file_then_line(tmp_path: Path) -> None:
 )
 def test_glob_matching(path: str, pattern: str, expected: bool) -> None:
     assert matches(path, pattern) is expected
+
+
+def marker(name: str) -> str:
+    return f"<!-- claim: {name} -->5<!-- /claim -->"
+
+
+def in_markdown(root: Path, *rows: str) -> list[tuple[int, str]]:
+    make_project(root, "", {"doc.md": "".join(row + "\n" for row in rows)})
+    return [(occurrence.line, occurrence.claim) for occurrence in found(root)]
+
+
+def test_fences_of_backticks_and_of_tildes_hide_their_markers(tmp_path: Path) -> None:
+    rows = (
+        marker("a"),
+        "```python",
+        marker("b"),
+        "\\claim{c}{5}",
+        "```",
+        "~~~",
+        marker("d"),
+        "```",
+        marker("e"),
+        "~~~",
+        marker("f") + " \\claim{g}{5}",
+    )
+    assert in_markdown(tmp_path, *rows) == [(1, "a"), (11, "f"), (11, "g")]
+
+
+def test_a_fence_closes_only_with_at_least_as_many_of_its_characters_and_nothing_else(
+    tmp_path: Path,
+) -> None:
+    rows = (
+        "````",
+        "```",
+        marker("a"),
+        "```` more",
+        marker("b"),
+        "``````   ",
+        marker("c"),
+    )
+    assert in_markdown(tmp_path, *rows) == [(7, "c")]
+
+
+def test_a_fence_may_be_indented_by_up_to_three_spaces(tmp_path: Path) -> None:
+    rows = (
+        "   ```",
+        marker("a"),
+        "   ```",
+        marker("b"),
+        "    ```",
+        marker("c"),
+    )
+    assert in_markdown(tmp_path, *rows) == [(4, "b"), (6, "c")]
+
+
+def test_a_fence_that_never_closes_runs_to_the_end_of_the_file(tmp_path: Path) -> None:
+    rows = (
+        marker("a"),
+        "~~~~",
+        marker("b"),
+        "~~~",
+        "",
+        marker("c"),
+    )
+    assert in_markdown(tmp_path, *rows) == [(1, "a")]
+
+
+def test_inline_code_spans_of_one_and_of_two_backticks_hide_their_markers(tmp_path: Path) -> None:
+    rows = (
+        f"`{marker('a')}` and {marker('b')}",
+        f"``{marker('c')} with ` inside`` and {marker('d')}",
+        "`\\claim{e}{5}` and \\claim{f}{5}",
+    )
+    assert in_markdown(tmp_path, *rows) == [(1, "b"), (2, "d"), (3, "f")]
+
+
+def test_a_backtick_run_without_a_partner_on_its_line_is_ordinary_text(tmp_path: Path) -> None:
+    rows = (
+        f"one ` tick {marker('a')}",
+        f"`` two {marker('b')} ` one `",
+        f"`{marker('c')}",
+        f"{marker('d')}`",
+    )
+    assert in_markdown(tmp_path, *rows) == [(1, "a"), (2, "b"), (3, "c"), (4, "d")]
+
+
+def test_line_numbers_and_markers_after_a_fence_are_unchanged(tmp_path: Path) -> None:
+    text = f"intro\n```\ncode\n\nmore code\n```\n\nValue {marker('a')} here, `code`.\n"
+    make_project(tmp_path, "", {"doc.md": text})
+    assert found(tmp_path) == [Occurrence("doc.md", 8, "a", "eq", "5", "sentinel")]
+
+
+def test_latex_files_are_scanned_as_before(tmp_path: Path) -> None:
+    tex = "``quoted'' \\claim{a}{5} ``again''\n```\n\\claim{b}{5}\n```\n"
+    make_project(tmp_path, "", {"paper.tex": tex})
+    assert [(o.line, o.claim) for o in found(tmp_path)] == [(1, "a"), (3, "b")]
+
+
+def test_bindings_still_read_code_in_markdown(tmp_path: Path) -> None:
+    readme = "```\n12 tests\n```\nand `13 tests`\n"
+    make_project(tmp_path, "", {"README.md": readme}, bound_config())
+    assert [(o.line, o.literal) for o in found(tmp_path)] == [(2, "12"), (4, "13")]
+
+
+def test_excluded_files_are_not_scanned(tmp_path: Path) -> None:
+    names = ["top.md", "docs/a.md", "docs/sub/b.md", "notes/c.md", "notes/d.md", "paper.tex"]
+    config = DEFAULT_CONFIG + 'exclude = ["docs/**", "*.tex", "notes/d.md"]\n'
+    make_project(tmp_path, "", dict.fromkeys(names, marker("x") + "\n"), config)
+    assert [o.file for o in found(tmp_path)] == ["notes/c.md", "top.md"]
+
+
+def test_exclude_does_not_apply_to_bindings(tmp_path: Path) -> None:
+    binding = BIND.format(files='["README.md"]', pattern=r"(\d+) tests\b", claim='"n"', extra="")
+    config = DEFAULT_CONFIG + 'exclude = ["*.md"]\n' + binding
+    make_project(tmp_path, "", {"README.md": f"12 tests\n{marker('x')}\n"}, config)
+    assert [(o.line, o.origin) for o in found(tmp_path)] == [(1, "pattern")]
+
+
+def test_nothing_is_excluded_by_default(tmp_path: Path) -> None:
+    make_project(tmp_path, "")
+    assert load_config(tmp_path / "numeric-claim.toml").exclude == ()
+
+
+@pytest.mark.parametrize("value", ['"docs/**"', "[1]", '["docs/**", 2]', "true"])
+def test_an_exclude_that_is_not_a_list_of_strings_is_a_configuration_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: str
+) -> None:
+    make_project(tmp_path, "", config=DEFAULT_CONFIG + f"exclude = {value}\n")
+    assert run(tmp_path, "check") == 2
+    assert "'exclude' must be a list of strings" in capsys.readouterr().err
+
+
+def test_this_repositorys_design_decisions_quote_markers_only_in_code(tmp_path: Path) -> None:
+    text = (REPOSITORY / "docs" / "decisions.md").read_text(encoding="utf-8")
+    assert "`<!-- claim: NAME -->VALUE<!-- /claim -->`" in text
+    assert "`\\claim{NAME}{VALUE}`" in text
+    make_project(tmp_path, "", {"docs/decisions.md": text})
+    assert found(tmp_path) == []
