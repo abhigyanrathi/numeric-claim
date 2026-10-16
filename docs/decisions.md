@@ -196,3 +196,87 @@ the probes. That holds for the Table 6.8 errors, which move by about 1e-13,
 but not for Y=0.5: its standard deviation under the probes is up to about
 1e-11, and the spread of its draws up to about 5e-11. The conclusion stands:
 these errors are method or reference error, not rounding.
+
+## 12. Monte Carlo claims
+
+A random claim's value comes from a Monte Carlo method. numeric-claim runs the
+claim R times (32 by default, set per claim), passing replicate i a seed
+derived from the claim's name and i, and reads a printed number as a statement
+about the method's expected value. The mean of the replicates estimates that
+value, with standard error s/sqrt(R) from their standard deviation s. For `eq`,
+the expected value must lie within half a unit of the printed number's last
+digit, widened by the claim's tolerance; `lt`, `le`, `gt` and `ge` read the
+printed number as a bound. Each printed number gets a Student t-test: t is the
+distance from the mean to the nearest value at which the statement holds,
+divided by the standard error, with R - 1 degrees of freedom, two-sided for
+`eq` and one-sided for the bounds. The p-values of a run are adjusted together
+with Holm's procedure (entry 7); a printed number whose adjusted p-value is at
+most alpha (0.01 unless the configuration sets it) is `violated`, any other is
+`supported`. One run with a fixed seed reproduces exactly and stays a seeded
+claim; a random claim states what the method gives on average, so digits finer
+than that average supports fail.
+
+Seeding the replicates from the claim's name makes a check repeatable: a result
+does not flicker between runs, and the lock file, which stores R, the mean and
+the standard deviation, stays byte-identical. A recomputed random claim drifts
+from its lock entry when Welch's two-sample t-test separates the two means at
+alpha. The t distribution is computed in the package, from the regularized
+incomplete beta function, so numeric-claim keeps no runtime dependencies.
+
+## 13. Comparing locks across revisions
+
+`numeric-claim diff REV` compares the lock file committed at a git revision
+(HEAD by default) with the current one, and computes nothing. Each claim is
+added, removed, unchanged, within noise or moved. An exact claim moves when its
+value changes; a seeded claim when its value changes by more than its
+tolerance, or by more than 3 sigma if it has an error budget; a random claim
+when Welch's test separates the two means at alpha. The command exits with
+status 1 when a claim was added, removed or moved. This is differential testing
+over time: a claim that moved between two revisions shows up even when no
+document quotes it, and the history of the lock file says when it moved.
+
+## 14. Scanning skips code
+
+The default scan reads every Markdown and LaTeX file, and documentation that
+explains the claim syntax quotes it: this repository's own decisions.md does,
+and failed its own check. In Markdown, sentinels and macros inside fenced code
+blocks and inline code spans are now ignored, since code there is shown, not
+asserted. An `exclude` list of globs removes files from the scan. Patterns in
+`[[bind]]` are unchanged: they name their files and read them whole, code
+included.
+
+## 15. Error budgets, second pass
+
+Five changes after the first run of the error budget. The fingerprint now
+includes numeric-claim's own version, so a lock written under other probe or
+test rules is recomputed rather than reused. A jitter amplitude must be at
+least 1e-12: below about 1e-16, 1 + a*u rounds to 1, the setting never moves,
+and the noise would read as zero. Ladder parameters may not be named
+`rounding`, `reference` or `unexplained`, which would read as labels. The
+drift of a budgeted claim tolerates 3 sigma (the larger of the locked and the
+recomputed sigma), so a lock committed on one platform does not drift on
+another through rounding alone: the Table 6.7 Y=1.5 value differs by 2.4e-8
+between Linux and Windows, against a sigma of about 3e-8. Fingerprints skip
+`*.egg-info` directories, which an editable install writes into the source
+tree.
+
+## 16. Gate 3: Monte Carlo claims
+
+At cosfin commit 39dee29614080f364f8c23c50f2b37279214f1ea, README.md lines
+117 to 119 report four delta-hedging results: dispersion ratios of 3.82 (13
+against 208 rebalancing steps) and 1.93 (13 against 52), a Merton-to-GBM
+dispersion ratio of 8.8 at 208 steps, and a Merton mean P&L of -2.46. Each is
+a single run with seed 7 (reproduced exactly: 3.8235, 1.9252, 8.7883 and
+-2.4635). As random claims over the same experiments (20,000 paths each, 64
+replicates), numeric-claim must flag all four as `violated`, and must pass the
+six bounds that cosfin's tests/test_ch5_hedging.py asserts on lines 25, 26, 39
+and 42 (3.0 < ratio < 5.0, 1.6 < ratio < 2.4, Merton dispersion above 4.0
+times GBM's, mean P&L below -1.0), so a tool that flags everything cannot
+pass.
+
+Probes run on 15 October 2026 (Linux, CPython 3.12.3, numpy 2.5.4), before the
+build and with the seeds this design specifies, put the four expected values at
+3.857, 1.951, 8.622 and -2.428. Each lies outside its printed number's
+half-unit by at least 6.5 standard errors at 64 replicates, while the six
+bounds hold by more than 150. The number of replicates and alpha were chosen
+after these probes.
