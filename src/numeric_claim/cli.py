@@ -137,7 +137,7 @@ def _run(args: argparse.Namespace) -> Report:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return its exit status: 0 ok, 1 failed, 2 configuration."""
     try:
-        args = _parser().parse_args(argv)
+        args = _parser().parse_intermixed_args(argv)
     except SystemExit as stop:
         return stop.code if isinstance(stop.code, int) else 2
     try:

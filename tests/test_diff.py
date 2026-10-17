@@ -1,8 +1,9 @@
+import json
 import os
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from scipy import stats
@@ -10,6 +11,7 @@ from scipy import stats
 from helpers import DEFAULT_CONFIG, json_report, make_project, run, write
 from numeric_claim import lockfile
 from numeric_claim.budget import Budget
+from numeric_claim.cli import main
 from numeric_claim.lockfile import LockEntry
 from numeric_claim.montecarlo import Summary
 
@@ -346,3 +348,82 @@ def test_the_reports_show_values_fingerprints_and_environment_changes(
         "claim pi moved old=3.14159 new=3.2 fingerprint=same environment=-",
         "3 claims against HEAD (1 added, 1 moved, 1 unchanged): exit 1",
     ]
+
+
+MOVED = [
+    "claim count moved old=1 new=2 fingerprint=same environment=-",
+    "1 claims against HEAD~1 (1 moved): exit 1",
+]
+
+
+@pytest.fixture
+def moved(repository: Path) -> Path:
+    commit(repository, {"count": exact(1)}, "First")
+    commit(repository, {"count": exact(2)}, "Second")
+    return repository
+
+
+def options(root: Path) -> dict[str, str]:
+    return {
+        "--config": str(root / "numeric-claim.toml"),
+        "--root": str(root),
+        "--lock": str(root / "claims.lock.json"),
+        "--json": str(root / "report.json"),
+    }
+
+
+def arguments(given: Mapping[str, str]) -> list[str]:
+    return [text for option in given.items() for text in option]
+
+
+def invoke(
+    root: Path, capsys: pytest.CaptureFixture[str], *argv: str
+) -> tuple[int, list[str], dict[str, Any]]:
+    report = root / "report.json"
+    report.unlink(missing_ok=True)
+    status = main(list(argv))
+    lines = capsys.readouterr().out.splitlines()
+    return status, lines, json.loads(report.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("option", ["--config", "--root", "--lock", "--json"])
+def test_the_revision_may_follow_an_option(
+    moved: Path, capsys: pytest.CaptureFixture[str], option: str
+) -> None:
+    rest = options(moved)
+    between = [option, rest.pop(option)]
+    expected = invoke(moved, capsys, "diff", "HEAD~1", *between, *arguments(rest))
+    assert expected[:2] == (1, MOVED)
+    assert invoke(moved, capsys, "diff", *between, "HEAD~1", *arguments(rest)) == expected
+
+
+def test_options_may_come_before_the_command_and_the_revision_last(
+    moved: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    given = arguments(options(moved))
+    expected = invoke(moved, capsys, "diff", "HEAD~1", *given)
+    assert expected[:2] == (1, MOVED)
+    assert invoke(moved, capsys, *given, "diff", "HEAD~1") == expected
+    assert invoke(moved, capsys, "diff", *given, "HEAD~1") == expected
+
+
+def test_a_revision_starting_with_a_dash_is_refused_before_git_runs(
+    moved: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> NoReturn:
+        pytest.fail(f"diff ran {args!r}")
+
+    monkeypatch.setattr("numeric_claim.diff.subprocess.run", forbidden)
+    config = ["--config", str(moved / "numeric-claim.toml")]
+    for argv in ([*config, "diff", "--", "--output=x"], ["diff", *config, "--", "--output=x"]):
+        assert main(argv) == 2
+        assert capsys.readouterr().err == "numeric-claim: error: invalid revision '--output=x'\n"
+
+
+def test_a_revision_after_an_option_still_applies_to_diff_only(
+    moved: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = str(moved / "numeric-claim.toml")
+    for command in ("lock", "check", "list"):
+        assert main([command, "--config", config, "HEAD~1"]) == 2
+        assert "a revision applies to the diff command only" in capsys.readouterr().err
