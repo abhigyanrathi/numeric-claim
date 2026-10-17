@@ -109,6 +109,17 @@ def test_a_changed_kind_is_moved_even_with_an_equal_value(repository: Path) -> N
 
 
 @pytest.mark.parametrize(
+    ("old", "new"), [(seeded(2.0), randomized(2.0)), (randomized(2.0), seeded(2.0))]
+)
+def test_a_kind_change_between_seeded_and_random_is_moved(
+    repository: Path, old: LockEntry, new: LockEntry
+) -> None:
+    commit(repository, {"x": old})
+    status, report = diff(repository, {"x": new})
+    assert (status, statuses(report)) == (1, [("x", "moved")])
+
+
+@pytest.mark.parametrize(
     ("old", "new", "expected"),
     [
         (seeded(1.0, rtol=1e-3), seeded(1.0009, rtol=1e-9), "within-noise"),

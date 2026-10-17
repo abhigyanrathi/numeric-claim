@@ -264,6 +264,14 @@ def test_a_backtick_run_without_a_partner_on_its_line_is_ordinary_text(tmp_path:
     assert in_markdown(tmp_path, *rows) == [(1, "a"), (2, "b"), (3, "c"), (4, "d")]
 
 
+def test_a_code_span_closes_only_with_a_run_of_exactly_as_many_backticks(tmp_path: Path) -> None:
+    rows = (
+        f"`{marker('a')}``",
+        f"``{marker('b')}``",
+    )
+    assert in_markdown(tmp_path, *rows) == [(1, "a")]
+
+
 def test_line_numbers_and_markers_after_a_fence_are_unchanged(tmp_path: Path) -> None:
     text = f"intro\n```\ncode\n\nmore code\n```\n\nValue {marker('a')} here, `code`.\n"
     make_project(tmp_path, "", {"doc.md": text})

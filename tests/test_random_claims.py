@@ -428,6 +428,32 @@ def test_verdicts_follow_the_holm_adjusted_p_values(tmp_path: Path) -> None:
     assert [o["verdict"] for o in report["occurrences"]] == ["supported", "supported"]
 
 
+def test_a_number_is_supported_when_holm_lifts_its_p_value_above_alpha(tmp_path: Path) -> None:
+    g = gauss_summary()
+    values = uniform_values(20)
+    u = Summary(statistics.fmean(values), statistics.stdev(values), 20)
+    above = f"{g.mean + stats.t.isf(0.002, 31) * g.se:.6f}"
+    near = f"{u.mean + stats.t.isf(0.0075 / 2, 19) * u.se:.6f}"
+    readme = sentinel(above, "gt") + sentinel(near, name="u") + sentinel("20", "lt")
+    claims = logging_claims(GAUSS.format(options=""), UNIFORM.format(replicates=20, options=""))
+    make_project(tmp_path, claims, {"README.md": readme})
+    assert run(tmp_path, "lock") == 0
+    status, report = json_report(tmp_path, "check")
+    p_above = float(stats.t.sf((float(above) - g.mean) / g.se, 31))
+    p_near = 2 * float(stats.t.sf((float(near) - 5e-7 - u.mean) / u.se, 19))
+    assert 3 * p_above <= 0.01 and p_near <= 0.01 < 2 * p_near
+    occurrences = report["occurrences"]
+    assert [o["p"] for o in occurrences] == pytest.approx([p_above, p_near, 1.0], rel=1e-9)
+    adjusted = [3 * p_above, 2 * p_near, 1.0]
+    assert [o["p_holm"] for o in occurrences] == pytest.approx(adjusted, rel=1e-9)
+    assert (status, report["alpha"]) == (1, 0.01)
+    assert [(o["verdict"], o["result"]) for o in occurrences] == [
+        ("violated", "fail"),
+        ("supported", "pass"),
+        ("supported", "pass"),
+    ]
+
+
 @pytest.mark.parametrize("option", ["atol", "rtol"])
 def test_the_tolerance_of_a_random_claim_widens_eq_but_not_the_bounds(
     tmp_path: Path, option: str
@@ -511,6 +537,27 @@ def test_a_recomputed_random_claim_drifts_when_welchs_test_separates_the_means(
         expected.mean, expected.sd, 32, shifted, expected.sd, 32, equal_var=False
     ).pvalue
     assert p < 1e-3
+
+
+def test_drift_follows_the_configured_alpha(tmp_path: Path) -> None:
+    expected = gauss_summary()
+    shifted = expected.mean + 3 * expected.se
+    p = stats.ttest_ind_from_stats(
+        expected.mean, expected.sd, 32, shifted, expected.sd, 32, equal_var=False
+    ).pvalue
+    assert 0.01 < p < 0.05
+    make_project(tmp_path, gauss())
+    assert run(tmp_path, "lock") == 0
+    rewrite_lock(tmp_path, lambda claims: claims["g"].update(value=stored(shifted)))
+    status, report = json_report(tmp_path, "check", "--recompute")
+    assert (status, report["alpha"], report["claims"][0]["status"]) == (0, 0.01, "ok")
+    write(tmp_path, "numeric-claim.toml", DEFAULT_CONFIG + "alpha = 0.05\n")
+    status, report = json_report(tmp_path, "check", "--recompute")
+    found = report["claims"][0]
+    assert (status, report["alpha"], found["status"]) == (1, 0.05, "drift")
+    assert found["note"].startswith(
+        f"computed mean {expected.mean!r} but locked {shifted!r} (Welch p="
+    )
 
 
 def test_without_spread_any_change_of_the_mean_is_drift(tmp_path: Path) -> None:
