@@ -258,10 +258,11 @@ tool must pass, so a tool that flagged everything would fail too. The configurat
    reference's last digit.
 3. **Monte Carlo results printed from one seed.** cosfin's README reports four delta-hedging
    results: P&L dispersion ratios of 3.82 and 1.93 between rebalancing schedules, a Merton-to-GBM
-   dispersion ratio of 8.8 and a Merton mean P&L of -2.46. Each is a single run with seed 7. As Monte Carlo claims over 64 replicates,
-   the method's expected values are 3.857, 1.951, 8.622 and -2.428, and all four printed numbers
-   are flagged, 6.5 to 9.1 standard errors away. The six bounds that cosfin's own tests assert on
-   the same experiments pass:
+   dispersion ratio of 8.8 and a Merton mean P&L of -2.46. Each is a single run with seed 7.
+   Declared as Monte Carlo claims over 64 replicates, the four have means of 3.857, 1.951, 8.622
+   and -2.428, and all four printed numbers are flagged, 6.5 to 9.1 standard errors away. The
+   six bounds that cosfin's own tests assert on the same experiments pass. Two lines of the
+   report, from a Linux run:
 
 ```
 README.md:117 ratio_13_208 eq 3.82 value=3.857354965780064 fail t=6.52 p=1.37e-08 p_holm=9.57e-08 verdict=violated
