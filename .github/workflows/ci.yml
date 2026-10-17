@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ruff==0.17.0 mypy==2.4.0 pytest==9.1.1 numpy mpmath scipy
+      - run: python -m ruff check .
+      - run: python -m ruff format --check .
+      - run: python -m mypy
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install pytest==9.1.1 numpy mpmath scipy
+      - run: python -m pytest -q
+
+  gates:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: >-
+          python -m pip install pytest==9.1.1 numpy mpmath scipy
+          "cosfin @ git+https://github.com/abhigyanrathi/cosfin.git@39dee29614080f364f8c23c50f2b37279214f1ea"
+      - name: Check out cosfin at the pinned commits
+        run: |
+          for commit in 5f51ee5135fd4cbd743e24d07d92969dde6fc4d8 39dee29614080f364f8c23c50f2b37279214f1ea; do
+            git clone --quiet https://github.com/abhigyanrathi/cosfin.git "$RUNNER_TEMP/cosfin-${commit:0:7}"
+            git -C "$RUNNER_TEMP/cosfin-${commit:0:7}" checkout --quiet --detach "$commit"
+          done
+      - name: Run the three gates
+        run: >-
+          python -m pytest
+          tests/test_gate_claim_binding.py tests/test_gate_error_budget.py tests/test_gate_monte_carlo.py
+          -rA --cosfin-5f51ee5 "$RUNNER_TEMP/cosfin-5f51ee5" --cosfin-39dee29 "$RUNNER_TEMP/cosfin-39dee29"
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build==1.6.1 twine==7.0.0
+      - run: python -m build
+      - run: python -m twine check --strict dist/*
