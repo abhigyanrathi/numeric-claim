@@ -203,7 +203,7 @@ def test_an_unknown_package_is_an_error(project: Path) -> None:
 def test_the_package_version_is_the_projects() -> None:
     with (REPOSITORY / "pyproject.toml").open("rb") as handle:
         version = tomllib.load(handle)["project"]["version"]
-    assert numeric_claim.__version__ == version == "0.1.0.dev0"
+    assert numeric_claim.__version__ == version
 
 
 def test_numeric_claims_own_version_is_part_of_it(

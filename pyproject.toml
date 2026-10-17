@@ -1,13 +1,38 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "numeric-claim"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Tie numbers published in documents to values computed from a project's own code."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Abhigyan Rathi" }]
 requires-python = ">=3.12"
 dependencies = []
+keywords = ["documentation", "reproducibility", "numerical analysis", "monte carlo", "testing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Documentation",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/abhigyanrathi/numeric-claim"
+Issues = "https://github.com/abhigyanrathi/numeric-claim/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy", "numpy", "mpmath", "scipy"]
@@ -18,6 +43,9 @@ numeric-claim = "numeric_claim.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+numeric_claim = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
